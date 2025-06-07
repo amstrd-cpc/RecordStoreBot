@@ -30,7 +30,7 @@ A standalone Telegram bot to manage your **vinyl record store** — inventory, D
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/yourusername/record-store-bot.git
+git clone https://github.com/amstrd-cpc/record-store-bot.git
 cd record-store-bot
 pip install -r requirements.txt
 ```
