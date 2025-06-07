@@ -10,10 +10,9 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 DISCOGS_TOKEN= os.getenv("DISCOGS_TOKEN")
-if not BOT_TOKEN or not DISCOGS_TOKEN:
-    raise ValueError("BOT_TOKEN and DISCOGS_TOKEN must be set in environment variables.")
+if not DISCOGS_TOKEN:
+    raise ValueError("DISCOGS_TOKEN must be set in environment variables.")
 EXCEL_FILE = "YOURDBFILENAMEHERE"
 
 d = discogs_client.Client("RecordStoreApp/1.0", user_token=DISCOGS_TOKEN)

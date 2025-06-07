@@ -6,9 +6,22 @@ from telegram.ext import (
     CommandHandler, CallbackQueryHandler, MessageHandler,
     ContextTypes, ConversationHandler, filters
 )
-from inventory import load_inventory
 
 from openpyxl import Workbook, load_workbook
+
+INVENTORY_FILE = "clime_db.xlsx"
+
+def load_inventory():
+    """Load inventory from Excel into a list of dicts."""
+    if not os.path.exists(INVENTORY_FILE):
+        return []
+    wb = load_workbook(INVENTORY_FILE)
+    ws = wb.active
+    headers = [cell.value for cell in ws[1]]
+    records = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        records.append(dict(zip(headers, row)))
+    return records
 
 INVENTORY_FILE = "clime_db.xlsx"
 SALES_FOLDER = "sales"
@@ -128,15 +141,25 @@ def save_sale(record, payment_method):
     else:
         wb = Workbook()
         ws = wb.active
-        ws.append(["Date", "Artist - Album", "Genre", "Style", "Label", "Format", "Condition", "USD Price", "Payment Method"])
+        ws.append([
+            "Date", "Artist - Album", "Genre", "Style", "Label",
+            "Format", "Condition", "USD Price", "Payment Method"
+        ])
 
     ws.append([
         today,
-        record["Artist - Album"], record["Genre"], record["Style"],
-        record["Label"], record.get("Format", "N/A"), record["Condition"],
-        record["USD Price"], payment_method
+        record.get("Artist - Album", "Unknown"),
+        record.get("Genre", ""),
+        record.get("Style", ""),
+        record.get("Label", ""),
+        record.get("Format", ""),
+        record.get("Condition", ""),
+        record.get("USD Price", 0),
+        payment_method
     ])
+
     wb.save(path)
+
 
 # 📉 Remove from inventory
 def remove_record_from_inventory(target):
