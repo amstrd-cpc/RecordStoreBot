@@ -2,6 +2,7 @@
 import os
 import logging
 from telegram import Update
+from dotenv import load_dotenv
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, ConversationHandler, filters
@@ -13,6 +14,7 @@ from reports import report_handler
 from inventory import has_record
 
 # === BOT TOKEN ===
+load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")  # Use .env or hardcode
 
 # === Logging ===
