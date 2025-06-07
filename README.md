@@ -84,10 +84,6 @@ PRs welcome. Want a web UI, analytics, or cloud inventory? Open an issue and let
 📜 License
 MIT — use freely, credit appreciated 🎧
 
-Copy
-Edit
-
-
 
 
 
