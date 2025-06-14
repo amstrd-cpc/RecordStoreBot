@@ -1,200 +1,194 @@
-# sales.py
-import os
+# sales.py — Fully updated with quantity tracking and dual DB logging
 import datetime
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    CommandHandler, CallbackQueryHandler, MessageHandler,
-    ContextTypes, ConversationHandler, filters
+    CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler,
+    ContextTypes, filters
 )
+from db import get_db
+from reports import log_sale_to_report_db
+import inventory as inventory_utils
 
-from openpyxl import Workbook, load_workbook
+SELL_QUERY, SELL_SELECT, SELL_PAYMENT, SELL_PRICE = range(4)
 
-INVENTORY_FILE = "clime_db.xlsx"
+# === Start Sell Flow ===
+async def sell_flow_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("💰 Welcome to the Sell Vinyls flow!\n"
+                                    "Please enter the artist or album name you want to sell:")
+    context.user_data.clear()
+    return SELL_QUERY
 
-def load_inventory():
-    """Load inventory from Excel into a list of dicts."""
-    if not os.path.exists(INVENTORY_FILE):
-        return []
-    wb = load_workbook(INVENTORY_FILE)
-    ws = wb.active
-    headers = [cell.value for cell in ws[1]]
-    records = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        records.append(dict(zip(headers, row)))
-    return records
+async def sell_flow_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+    context.user_data["query"] = query
+    found_items = inventory_utils.search_inventory(query)
 
-INVENTORY_FILE = "clime_db.xlsx"
-SALES_FOLDER = "sales"
+    if not found_items:
+        await update.message.reply_text(f"❌ No matching records found for: *{query}*", parse_mode="Markdown")
+        return ConversationHandler.END
 
-if not os.path.exists(SALES_FOLDER):
-    os.makedirs(SALES_FOLDER)
-
-SEARCH_VINYL, CONFIRM_CART, CHOOSE_PAYMENT = range(3)
-
-# 🧠 Conversation storage
-user_sessions = {}
-
-# 🛒 Start /sell
-async def start_sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["cart"] = []
-    context.user_data["page"] = 0
-    context.user_data["inventory"] = load_inventory()
-    await show_inventory_page(update, context)
-    return SEARCH_VINYL
-
-# 📃 Show inventory with pagination
-async def show_inventory_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    page = context.user_data["page"]
-    inventory = context.user_data["inventory"]
-    items = inventory[page*10:(page+1)*10]
-
-    if not items:
-        await update.message.reply_text("No items found.")
-        return
-
+    context.user_data["found_items"] = found_items
+    
+    # Create buttons with proper item information including quantity
     buttons = []
-    for i, item in enumerate(items):
-        btn_text = f"{item['Artist - Album']} - ${item['USD Price']}"
-        buttons.append([
-            InlineKeyboardButton(btn_text[:60], callback_data=f"add_{page*10 + i}")
-        ])
+    for i, item in enumerate(found_items):
+        button_text = f"{item['artist_album']} - {item['condition']} (Qty: {item['quantity']}) - ${item['price_usd']:.2f}"
+        # Truncate if too long for button
+        if len(button_text) > 60:
+            button_text = button_text[:57] + "..."
+        buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{i}")])
 
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("⬅️ Prev", callback_data="prev"))
-    if len(inventory) > (page + 1)*10:
-        nav.append(InlineKeyboardButton("➡️ Next", callback_data="next"))
-    if nav:
-        buttons.append(nav)
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text("Please select the record you want to sell:", reply_markup=reply_markup)
+    return SELL_SELECT
 
-    buttons.append([
-        InlineKeyboardButton("🛒 View Cart / Checkout", callback_data="checkout")
-    ])
-
-    if update.callback_query:
-        await update.callback_query.edit_message_text("Select records to add to cart:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    else:
-        await update.message.reply_text("Select records to add to cart:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-
-    return SEARCH_VINYL
-
-# ➕ Add to cart
-async def handle_inventory_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sell_flow_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.data == "next":
-        context.user_data["page"] += 1
-        return await show_inventory_page(update, context)
-    elif query.data == "prev":
-        context.user_data["page"] -= 1
-        return await show_inventory_page(update, context)
-    elif query.data == "checkout":
-        return await show_cart(update, context)
-    elif query.data.startswith("add_"):
-        idx = int(query.data.split("_")[1])
-        selected = context.user_data["inventory"][idx]
-        context.user_data["cart"].append(selected)
-        await query.answer("Added to cart ✅")
-        return await show_inventory_page(update, context)
+    await query.answer()
 
-# 🛒 View cart
-async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cart = context.user_data["cart"]
-    if not cart:
-        await update.callback_query.answer("Cart is empty.")
-        return SEARCH_VINYL
+    selected_index = int(query.data.split("_")[1])
+    selected_item = context.user_data["found_items"][selected_index]
+    context.user_data["selected_item"] = selected_item
 
-    text = "🛒 Cart:\n\n"
-    for item in cart:
-        text += f"• {item['Artist - Album']} - ${item['USD Price']}\n"
-
-    buttons = [
-        [InlineKeyboardButton("💳 Pay with POS", callback_data="pay_pos")],
-        [InlineKeyboardButton("💵 Pay with Cash", callback_data="pay_cash")],
-        [InlineKeyboardButton("🔙 Back", callback_data="back")]
+    # Create payment method buttons
+    payment_buttons = [
+        [InlineKeyboardButton("💵 Cash", callback_data="payment_cash")],
+        [InlineKeyboardButton("💳 POS/Card", callback_data="payment_pos")]
     ]
+    
+    await query.edit_message_text(
+        f"Selected: *{selected_item['artist_album']}*\n"
+        f"Condition: {selected_item['condition']}\n"
+        f"Available: {selected_item['quantity']} copies\n"
+        f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
+        f"Choose payment method:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(payment_buttons)
+    )
+    return SELL_PAYMENT
 
-    await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    return CONFIRM_CART
+async def sell_flow_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    payment_method = query.data.split("_")[1]  # 'cash' or 'pos'
+    context.user_data["payment_method"] = payment_method
+    
+    selected_item = context.user_data["selected_item"]
+    
+    await query.edit_message_text(
+        f"Payment method: *{payment_method.upper()}*\n\n"
+        f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
+        f"Enter the selling price or type 'ok' to use the listed price:",
+        parse_mode="Markdown"
+    )
+    return SELL_PRICE
 
-# 💰 Payment method
-async def handle_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    method = "POS" if "pos" in update.callback_query.data else "Cash"
-    cart = context.user_data["cart"]
-    for item in cart:
-        save_sale(item, method)
-        remove_record_from_inventory(item)
-    await update.callback_query.edit_message_text(f"✅ {len(cart)} record(s) sold via {method}.\nInventory updated.")
+async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message.text.strip()
+    selected_item = context.user_data["selected_item"]
+    payment_method = context.user_data["payment_method"]
+
+    # Handle price input
+    if msg.lower() == "ok":
+        final_price = selected_item['price_usd']
+    else:
+        try:
+            final_price = float(msg)
+            if final_price < 0:
+                await update.message.reply_text("❌ Price cannot be negative. Please enter a valid price or 'ok':")
+                return SELL_PRICE
+        except ValueError:
+            await update.message.reply_text("❌ Invalid price format. Please enter a valid number or 'ok':")
+            return SELL_PRICE
+
+    # Process the sale
+    today = datetime.date.today().isoformat()
+    
+    try:
+        # Reduce inventory quantity using the inventory utility
+        success = inventory_utils.reduce_inventory_quantity(selected_item['id'], 1)
+        
+        if not success:
+            await update.message.reply_text("❌ Unable to complete sale - item may be out of stock.")
+            return ConversationHandler.END
+
+        # Save to main database sales table
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO sales (
+                    date, artist_album, genre, style, label, format,
+                    condition, price_usd, payment_method
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                today,
+                selected_item['artist_album'],
+                selected_item['genre'],
+                selected_item['style'],
+                selected_item['label'],
+                selected_item['format'],
+                selected_item['condition'],
+                final_price,
+                payment_method
+            ))
+            conn.commit()
+
+        # Log to sales report database
+        log_sale_to_report_db({
+            'date': today,
+            'artist_album': selected_item['artist_album'],
+            'genre': selected_item['genre'],
+            'style': selected_item['style'],
+            'label': selected_item['label'],
+            'format': selected_item['format'],
+            'condition': selected_item['condition'],
+            'price_usd': final_price,
+            'payment_method': payment_method
+        })
+
+        # Get updated quantity for confirmation
+        updated_item = inventory_utils.get_inventory_by_id(selected_item['id'])
+        remaining_qty = updated_item['quantity'] if updated_item else 0
+        
+        confirmation_msg = (
+            f"✅ Sale recorded successfully!\n\n"
+            f"📀 Album: {selected_item['artist_album']}\n"
+            f"💿 Condition: {selected_item['condition']}\n"
+            f"💰 Price: ${final_price:.2f}\n"
+            f"💳 Payment: {payment_method.upper()}\n"
+            f"📦 Remaining quantity: {remaining_qty}"
+        )
+        
+        if remaining_qty == 0:
+            confirmation_msg += "\n\n⚠️ This item is now out of stock."
+        elif remaining_qty <= 2:
+            confirmation_msg += f"\n\n⚠️ Low stock warning: Only {remaining_qty} left!"
+
+        await update.message.reply_text(confirmation_msg)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error processing sale: {str(e)}")
+        return ConversationHandler.END
+
     return ConversationHandler.END
 
-# 📁 Save sale
-def save_sale(record, payment_method):
-    today = datetime.date.today().isoformat()
-    path = os.path.join(SALES_FOLDER, f"{today}.xlsx")
+async def cancel_sale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle cancellation of sale process"""
+    await update.message.reply_text("❌ Sale cancelled.")
+    return ConversationHandler.END
 
-    if os.path.exists(path):
-        wb = load_workbook(path)
-        ws = wb.active
-    else:
-        wb = Workbook()
-        ws = wb.active
-        ws.append([
-            "Date", "Artist - Album", "Genre", "Style", "Label",
-            "Format", "Condition", "USD Price", "Payment Method"
-        ])
-
-    ws.append([
-        today,
-        record.get("Artist - Album", "Unknown"),
-        record.get("Genre", ""),
-        record.get("Style", ""),
-        record.get("Label", ""),
-        record.get("Format", ""),
-        record.get("Condition", ""),
-        record.get("USD Price", 0),
-        payment_method
-    ])
-
-    wb.save(path)
-
-
-# 📉 Remove from inventory
-def remove_record_from_inventory(target):
-    from openpyxl import load_workbook, Workbook
-    wb = load_workbook(INVENTORY_FILE)
-    ws = wb.active
-
-    headers = [cell.value for cell in ws[1]]
-    all_rows = list(ws.iter_rows(min_row=2, values_only=True))
-
-    kept = []
-    match = False
-    for row in all_rows:
-        row_dict = dict(zip(headers, row))
-        if not match and all(str(row_dict.get(k)) == str(target.get(k)) for k in headers):
-            match = True
-            continue
-        kept.append(row)
-
-    new_wb = Workbook()
-    new_ws = new_wb.active
-    new_ws.append(headers)
-    for row in kept:
-        new_ws.append(row)
-    new_wb.save(INVENTORY_FILE)
-
+# === Entry Point ===
 def start_sell_flow():
-    return [ConversationHandler(
-        entry_points=[CommandHandler("sell", start_sell)],
+    return ConversationHandler(
+        entry_points=[CommandHandler("sell", sell_flow_start)],
         states={
-            SEARCH_VINYL: [CallbackQueryHandler(handle_inventory_selection)],
-            CONFIRM_CART: [CallbackQueryHandler(handle_payment, pattern=r"^pay_"),
-                           CallbackQueryHandler(show_inventory_page, pattern="^back$")]
+            SELL_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_query)],
+            SELL_SELECT: [CallbackQueryHandler(sell_flow_select, pattern=r"^select_\d+$")],
+            SELL_PAYMENT: [CallbackQueryHandler(sell_flow_payment, pattern=r"^payment_(cash|pos)$")],
+            SELL_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_price)]
         },
-        fallbacks=[],
-        name="sell_flow",
+        fallbacks=[CommandHandler("cancel", cancel_sale)],
+        name="sell_vinyls",
         persistent=False
-    )]
+    )

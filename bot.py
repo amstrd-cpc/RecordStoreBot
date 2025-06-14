@@ -1,4 +1,4 @@
-# bot.py
+# bot.py — Fixed version with proper handler setup and SQLite integration
 import os
 import logging
 from telegram import Update
@@ -7,15 +7,17 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, ConversationHandler, filters
 )
-
 from add_record import start_add_flow
 from sales import start_sell_flow
-from reports import report_handler
+from reports import report_handler, init_report_db
 from inventory import has_record
+from db import init_db
 
-# === BOT TOKEN ===
+# === Load environment and bot token ===
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")  # Use .env or hardcode
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN must be set in .env or environment variables.")
 
 # === Logging ===
 logging.basicConfig(level=logging.INFO)
@@ -59,20 +61,49 @@ def inventory_handler():
         persistent=False
     )
 
-# === Main App Setup ===
+# === Fallback handlers ===
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Unknown command. Use /start to see available commands.")
+
+async def handle_text_without_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Please use a command. Type /start to see available commands.")
+
+async def handle_other_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("I can only process text commands. Use /start to see available commands.")
+
+# === Error handler ===
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error {context.error}")
+
+# === Main Bot App ===
 def main():
+    # Initialize databases
+    print("🔧 Initializing databases...")
+    init_db()
+    init_report_db()
+    print("✅ Databases initialized")
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Core Commands
+    # Register conversation handlers first (they have priority)
+    app.add_handler(inventory_handler())
+    app.add_handler(start_add_flow())
+    app.add_handler(start_sell_flow())
+    
+    # Register simple command handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(inventory_handler())          # /inventory
-    app.add_handler(report_handler())             # /report
-    app.add_handlers(start_add_flow())            # /add
-    app.add_handlers(start_sell_flow())           # /sell
+    app.add_handler(report_handler())
+    
+    # Register fallback handlers (these should be last)
+    app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_without_command))
+    app.add_handler(MessageHandler(filters.ALL, handle_other_content))
+    
+    # Add error handler
+    app.add_error_handler(error_handler)
 
     print("🤖 Bot running...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-# This is the main entry point for the bot.
