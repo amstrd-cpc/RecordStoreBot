@@ -11,6 +11,16 @@ import inventory as inventory_utils
 
 SELL_QUERY, SELL_SELECT, SELL_PAYMENT, SELL_PRICE = range(4)
 
+def escape_markdown_v2(text):
+    """Escape special characters for MarkdownV2"""
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    return ''.join(f'\\{char}' if char in special_chars else char for char in str(text))
+
+def escape_markdown_v1(text):
+    """Escape special characters for Markdown (legacy)"""
+    special_chars = r'_*`['
+    return ''.join(f'\\{char}' if char in special_chars else char for char in str(text))
+
 # === Start Sell Flow ===
 async def sell_flow_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("💰 Welcome to the Sell Vinyls flow!\n"
@@ -24,7 +34,8 @@ async def sell_flow_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     found_items = inventory_utils.search_inventory(query)
 
     if not found_items:
-        await update.message.reply_text(f"❌ No matching records found for: *{query}*", parse_mode="Markdown")
+        # Use HTML parsing instead of Markdown to avoid conflicts
+        await update.message.reply_text(f"❌ No matching records found for: <b>{query}</b>", parse_mode="HTML")
         return ConversationHandler.END
 
     context.user_data["found_items"] = found_items
@@ -56,13 +67,18 @@ async def sell_flow_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💳 POS/Card", callback_data="payment_pos")]
     ]
     
-    await query.edit_message_text(
-        f"Selected: *{selected_item['artist_album']}*\n"
+    # Use HTML parsing instead of Markdown to avoid special character conflicts
+    message_text = (
+        f"Selected: <b>{selected_item['artist_album']}</b>\n"
         f"Condition: {selected_item['condition']}\n"
         f"Available: {selected_item['quantity']} copies\n"
         f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
-        f"Choose payment method:",
-        parse_mode="Markdown",
+        f"Choose payment method:"
+    )
+    
+    await query.edit_message_text(
+        message_text,
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(payment_buttons)
     )
     return SELL_PAYMENT
@@ -76,11 +92,16 @@ async def sell_flow_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     selected_item = context.user_data["selected_item"]
     
-    await query.edit_message_text(
-        f"Payment method: *{payment_method.upper()}*\n\n"
+    # Use HTML parsing instead of Markdown
+    message_text = (
+        f"Payment method: <b>{payment_method.upper()}</b>\n\n"
         f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
-        f"Enter the selling price or type 'ok' to use the listed price:",
-        parse_mode="Markdown"
+        f"Enter the selling price or type 'ok' to use the listed price:"
+    )
+    
+    await query.edit_message_text(
+        message_text,
+        parse_mode="HTML"
     )
     return SELL_PRICE
 
@@ -151,9 +172,10 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         updated_item = inventory_utils.get_inventory_by_id(selected_item['id'])
         remaining_qty = updated_item['quantity'] if updated_item else 0
         
+        # Use HTML formatting for the confirmation message
         confirmation_msg = (
             f"✅ Sale recorded successfully!\n\n"
-            f"📀 Album: {selected_item['artist_album']}\n"
+            f"📀 Album: <b>{selected_item['artist_album']}</b>\n"
             f"💿 Condition: {selected_item['condition']}\n"
             f"💰 Price: ${final_price:.2f}\n"
             f"💳 Payment: {payment_method.upper()}\n"
@@ -165,7 +187,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif remaining_qty <= 2:
             confirmation_msg += f"\n\n⚠️ Low stock warning: Only {remaining_qty} left!"
 
-        await update.message.reply_text(confirmation_msg)
+        await update.message.reply_text(confirmation_msg, parse_mode="HTML")
 
     except Exception as e:
         await update.message.reply_text(f"❌ Error processing sale: {str(e)}")

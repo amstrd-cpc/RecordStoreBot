@@ -37,6 +37,56 @@ def fetch_price_suggestions(release_id):
     except Exception:
         return {}
 
+# === Safe data extraction functions ===
+def safe_join_list(data, default="N/A"):
+    """Safely join a list of items, handling various data types"""
+    if not data:
+        return default
+    try:
+        if isinstance(data, list):
+            # Convert all items to strings and join
+            return ", ".join(str(item) for item in data if item)
+        else:
+            return str(data)
+    except Exception:
+        return default
+
+def safe_get_labels(release):
+    """Safely extract label names from release"""
+    try:
+        if hasattr(release, 'labels') and release.labels:
+            labels = []
+            for label in release.labels:
+                if hasattr(label, 'name'):
+                    labels.append(str(label.name))
+                else:
+                    labels.append(str(label))
+            return ", ".join(labels) if labels else "N/A"
+        return "N/A"
+    except Exception:
+        return "N/A"
+
+def safe_get_format(release):
+    """Safely extract format information"""
+    try:
+        format_data = release.data.get("formats", [])
+        if not format_data:
+            return "Unknown Format"
+        
+        format_parts = []
+        for fmt in format_data:
+            parts = []
+            if fmt.get("name"):
+                parts.append(str(fmt.get("name")))
+            if fmt.get("descriptions"):
+                parts.extend([str(desc) for desc in fmt.get("descriptions", [])])
+            if parts:
+                format_parts.append(" ".join(parts))
+        
+        return ", ".join(format_parts) if format_parts else "Unknown Format"
+    except Exception:
+        return "Unknown Format"
+
 # === Telegram Flow ===
 async def start_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter album name (Artist - Title):")
@@ -57,14 +107,7 @@ async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     buttons = []
     for i, release in enumerate(results):
-        try:
-            format_data = release.data.get("formats", [])
-            format_str = ", ".join(
-                [fmt.get("name", "")] + fmt.get("descriptions", [])
-                for fmt in format_data
-            )
-        except Exception:
-            format_str = "Unknown Format"
+        format_str = safe_get_format(release)
         text = f"{release.title} [{format_str}]"
         buttons.append([InlineKeyboardButton(text=text[:60], callback_data=f"select_{i}")])
 
@@ -160,24 +203,26 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
     cond = context.user_data["condition"]
     price = context.user_data["final_price"]
 
-    format_str = ", ".join(
-        [fmt.get("name", "")] + fmt.get("descriptions", [])
-        for fmt in release.data.get("formats", [])
-    )
-
+    # Use safe extraction functions to ensure all values are strings
     row = [
-        release.title,
-        ", ".join(release.genres or []),
-        ", ".join(release.styles or []),
-        ", ".join([l.name for l in release.labels]) if hasattr(release, 'labels') else "N/A",
-        format_str,
-        cond,
-        price,
-        qty
+        str(release.title),  # Ensure title is string
+        safe_join_list(release.genres),  # Safely join genres
+        safe_join_list(release.styles),  # Safely join styles
+        safe_get_labels(release),  # Safely get labels
+        safe_get_format(release),  # Safely get format
+        str(cond),  # Ensure condition is string
+        float(price),  # Keep as float for price
+        int(qty)  # Keep as int for quantity
     ]
     
-    save_to_inventory(row)
-    await update.message.reply_text(f"✅ {qty} copy(ies) of '{release.title}' added to inventory at ${price:.2f} each.")
+    try:
+        save_to_inventory(row)
+        await update.message.reply_text(f"✅ {qty} copy(ies) of '{release.title}' added to inventory at ${price:.2f} each.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error saving to inventory: {str(e)}")
+        print(f"Error details: {e}")
+        print(f"Row data: {row}")
+    
     return ConversationHandler.END
 
     

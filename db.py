@@ -1,7 +1,7 @@
 import sqlite3
 import os
 
-DB_FILE = "record_store.db"
+DB_FILE = "clime_db.db"
 
 def get_db():
     return sqlite3.connect(DB_FILE)

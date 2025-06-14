@@ -1,109 +1,223 @@
-# bot.py — Fixed version with proper handler setup and SQLite integration
-import os
+#!/usr/bin/env python3
+"""
+Protected Record Store Telegram Bot
+All functions require authentication with password
+"""
+
 import logging
+import os
+import re
 from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, ConversationHandler, filters
-)
+
+# Import your existing modules
+from auth import auth_manager, require_auth, create_auth_handlers, check_auth_middleware
 from add_record import start_add_flow
 from sales import start_sell_flow
-from reports import report_handler, init_report_db
-from inventory import has_record
-from db import init_db
+from inventory import create_inventory_conversation
+import inventory as inventory_utils
+import reports
 
-# === Load environment and bot token ===
+# Load environment variables
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN must be set in .env or environment variables.")
 
-# === Logging ===
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# === /start Command ===
+# Get bot token
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN must be set in environment variables")
+
+def escape_markdown_v2(text: str) -> str:
+    """
+    Escape MarkdownV2 special characters
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    escape_chars = r"_*[]()~`>#+-=|{}.!\\"
+    return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", text)
+
+# === Protected Command Handlers ===
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🎶 Welcome to Record Store Bot!\n\n"
-        "Available commands:\n"
-        "/inventory - Check if a record is in stock\n"
-        "/add - Add vinyl via Discogs\n"
-        "/sell - Sell vinyls to customer\n"
-        "/report - Generate daily Excel report"
+    """Start command - always accessible"""
+    user = update.effective_user
+    welcome_message = (
+        f"🎵 *Welcome to the Record Store Bot\\!* 🎵\n\n"
+        f"Hello {escape_markdown_v2(user.first_name)}\\!\n\n"
+        f"🔒 *This bot is password protected\\.*\n"
+        f"You must authenticate before using any commands\\.\n\n"
+        f"*Commands:*\n"
+        f"• /login \\- Enter password to authenticate\n"
+        f"• /help \\- Show this help message\n\n"
+        f"After authentication, you'll have access to:\n"
+        f"• /add \\- Add new records to inventory\n"
+        f"• /sell \\- Process record sales\n"
+        f"• /inventory \\- Search and view inventory\n"
+        f"• /reports \\- Generate sales reports\n"
+        f"• /status \\- Check authentication status\n"
+        f"• /logout \\- Sign out\n\n"
+        f"🔐 *Use /login to get started\\!*"
     )
+    
+    await update.message.reply_text(welcome_message, parse_mode="MarkdownV2")
 
-# === /inventory Command ===
-INVENTORY_QUERY = range(1)
-
-async def inventory_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎯 Enter the artist or album name to check:")
-    return INVENTORY_QUERY
-
-async def handle_inventory_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = update.message.text
-    found = has_record(name)
-    if found:
-        await update.message.reply_text(f"✅ Yes, we have something matching: *{name}*", parse_mode="Markdown")
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Help command - always accessible"""
+    user_id = update.effective_user.id
+    
+    if auth_manager.is_authenticated(user_id):
+        help_text = (
+            "🎵 *Record Store Bot \\- Commands* 🎵\n\n"
+            "*Inventory Management:*\n"
+            "• /add \\- Add new records from Discogs\n"
+            "• /inventory \\- Interactive inventory search\n"
+            "• /stock \\- View low stock items\n\n"
+            "*Sales:*\n"
+            "• /sell \\- Process a sale\n"
+            "• /sales \\- View recent sales\n\n"
+            "*Reports:*\n"
+            "• /reports \\- Generate sales reports\n"
+            "• /daily \\- Today's sales summary\n"
+            "• /weekly \\- Weekly sales report\n"
+            "• /monthly \\- Monthly sales report\n\n"
+            "*Account:*\n"
+            "• /status \\- Check authentication status\n"
+            "• /logout \\- Sign out\n"
+            "• /users \\- View active users \\(admin\\)\n\n"
+            "*General:*\n"
+            "• /help \\- Show this help\n"
+            "• /cancel \\- Cancel current operation"
+        )
     else:
-        await update.message.reply_text(f"❌ No match found for: *{name}*", parse_mode="Markdown")
-    return ConversationHandler.END
+        help_text = (
+            "🔒 *Authentication Required* 🔒\n\n"
+            "*Available Commands:*\n"
+            "• /login \\- Enter password to authenticate\n"
+            "• /help \\- Show this help\n"
+            "• /start \\- Welcome message\n\n"
+            "*After authentication, you'll have access to:*\n"
+            "• Inventory management\n"
+            "• Sales processing\n"
+            "• Report generation\n"
+            "• And much more\\!\n\n"
+            "🔐 *Use /login to get started\\!*"
+        )
+    
+    await update.message.reply_text(help_text, parse_mode="MarkdownV2")
 
-def inventory_handler():
-    return ConversationHandler(
-        entry_points=[CommandHandler("inventory", inventory_start)],
-        states={
-            INVENTORY_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_inventory_query)]
-        },
-        fallbacks=[],
-        name="inventory_check",
-        persistent=False
-    )
+@require_auth
+async def recent_sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show recent sales - requires authentication"""
+    sales = reports.get_recent_sales(limit=10)
+    
+    if not sales:
+        await update.message.reply_text("📊 No recent sales found\\.", parse_mode="MarkdownV2")
+        return
+    
+    message = "💰 *Recent Sales*\n\n"
+    for sale in sales:
+        # Escape the artist_album field for MarkdownV2
+        safe_artist_album = escape_markdown_v2(str(sale['artist_album']))
+        safe_payment_method = escape_markdown_v2(str(sale['payment_method']))
+        safe_date = escape_markdown_v2(str(sale['date']))
+        price = sale['price_usd']
+        
+        message += (
+            f"🎵 {safe_artist_album}\n"
+            f"💰 ${price:.2f} \\({safe_payment_method}\\)\n"
+            f"📅 {safe_date}\n\n"
+        )
+    
+    await update.message.reply_text(message, parse_mode="MarkdownV2")
 
-# === Fallback handlers ===
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Unknown command. Use /start to see available commands.")
+@require_auth
+async def daily_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate daily sales report - requires authentication"""
+    try:
+        report = reports.generate_daily_report()
+        # Convert the report to MarkdownV2 if it's in Markdown v1
+        # For now, let's use plain text to avoid parsing issues
+        await update.message.reply_text(report)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error generating daily report: {escape_markdown_v2(str(e))}", parse_mode="MarkdownV2")
 
-async def handle_text_without_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Please use a command. Type /start to see available commands.")
+@require_auth
+async def weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate weekly sales report - requires authentication"""
+    try:
+        report = reports.generate_weekly_report()
+        # Convert the report to MarkdownV2 if it's in Markdown v1
+        # For now, let's use plain text to avoid parsing issues
+        await update.message.reply_text(report)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error generating weekly report: {escape_markdown_v2(str(e))}", parse_mode="MarkdownV2")
 
-async def handle_other_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("I can only process text commands. Use /start to see available commands.")
+@require_auth
+async def monthly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate monthly sales report - requires authentication"""
+    try:
+        report = reports.generate_monthly_report()
+        # Convert the report to MarkdownV2 if it's in Markdown v1
+        # For now, let's use plain text to avoid parsing issues
+        await update.message.reply_text(report)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error generating monthly report: {escape_markdown_v2(str(e))}", parse_mode="MarkdownV2")
 
-# === Error handler ===
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}")
+async def unauthorized_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle messages from unauthorized users"""
+    if not await check_auth_middleware(update, context):
+        return  # Auth check already sent the denial message
 
-# === Main Bot App ===
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors"""
+    logger.error(f"Exception while handling an update: {context.error}")
+
 def main():
-    # Initialize databases
-    print("🔧 Initializing databases...")
-    init_db()
-    init_report_db()
-    print("✅ Databases initialized")
+    """Main function to run the bot"""
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Register conversation handlers first (they have priority)
-    app.add_handler(inventory_handler())
-    app.add_handler(start_add_flow())
-    app.add_handler(start_sell_flow())
+    # Add authentication handlers (these don't require auth)
+    auth_handlers = create_auth_handlers()
+    for handler in auth_handlers:
+        application.add_handler(handler)
     
-    # Register simple command handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(report_handler())
+    # Add always-accessible commands
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
     
-    # Register fallback handlers (these should be last)
-    app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_without_command))
-    app.add_handler(MessageHandler(filters.ALL, handle_other_content))
+    # Add protected command handlers
+    application.add_handler(CommandHandler("sales", recent_sales))
+    application.add_handler(CommandHandler("daily", daily_report))
+    application.add_handler(CommandHandler("weekly", weekly_report))
+    application.add_handler(CommandHandler("monthly", monthly_report))
+    
+    # Add conversation handlers (these have their own auth checks)
+    application.add_handler(start_add_flow())
+    application.add_handler(start_sell_flow())
+    application.add_handler(create_inventory_conversation())
+    
+    # Add fallback handler for unauthorized access
+    application.add_handler(MessageHandler(filters.ALL, unauthorized_handler))
     
     # Add error handler
-    app.add_error_handler(error_handler)
-
-    print("🤖 Bot running...")
-    app.run_polling()
+    application.add_error_handler(error_handler)
+    
+    # Cleanup expired sessions on startup
+    auth_manager.cleanup_expired_sessions()
+    
+    # Start the bot
+    logger.info("🤖 Starting protected record store bot...")
+    logger.info(f"🔒 Session timeout: {os.getenv('SESSION_TIMEOUT_HOURS', '24')} hours")
+    
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
