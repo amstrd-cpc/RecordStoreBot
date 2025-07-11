@@ -16,6 +16,7 @@ from auth import auth_manager, require_auth, create_auth_handlers, check_auth_mi
 from add_record import start_add_flow
 from sales import start_sell_flow
 from inventory import create_inventory_conversation
+from db import init_db
 import inventory as inventory_utils
 import reports
 
@@ -181,6 +182,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Main function to run the bot"""
+    # Ensure required tables exist
+    init_db()
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
