@@ -13,6 +13,11 @@ def init_db():
     """Initialize the main database with proper schema"""
     with get_db() as conn:
         cursor = conn.cursor()
+
+        # Check existing tables for potential migration from the old Sheet table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        migrate_from_sheet = "Sheet" in existing_tables and "inventory" not in existing_tables
         
         # Create inventory table
         cursor.execute("""
@@ -59,10 +64,22 @@ def init_db():
         """)
         
         cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_sales_date 
+        CREATE INDEX IF NOT EXISTS idx_sales_date
         ON sales(date)
         """)
-        
+
+        if migrate_from_sheet:
+            # Migrate existing data from the old Sheet table into the new inventory table
+            cursor.execute(
+                """
+                INSERT INTO inventory (artist_album, genre, style, label, format, condition, price_usd, quantity)
+                SELECT "Artist_-_Album", Genre, Style, Label, '' as format, Condition, USD_Price, 1
+                FROM Sheet
+                """
+            )
+            cursor.execute("DROP TABLE Sheet")
+            print("🔄 Migrated data from Sheet table to inventory")
+
         conn.commit()
         print("✅ Main database initialized successfully")
 
