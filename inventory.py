@@ -2,6 +2,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, ConversationHandler, filters
 from auth import require_auth
+from db import get_db
 import inventory as inventory_utils
 import re
 
@@ -55,7 +56,7 @@ async def handle_inventory_query(update: Update, context: ContextTypes.DEFAULT_T
             results = inventory_utils.get_all_inventory()
             title = "📦 All Inventory"
         else:
-            results = inventory_utils.start_inventory_search(query)
+            results = inventory_utils.search_inventory(query)
             title = f"🔍 Search Results for: {query}"
 
         await searching_message.delete()
@@ -158,3 +159,122 @@ def create_inventory_conversation():
         name="inventory_search",
         persistent=False
     )
+
+# === Inventory Utility Functions ===
+
+def search_inventory(query: str) -> list:
+    """Search inventory records matching the query string."""
+    like = f"%{query.lower()}%"
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, artist_album, genre, style, label, format,
+                   condition, price_usd, quantity
+            FROM inventory
+            WHERE lower(artist_album) LIKE ?
+               OR lower(genre) LIKE ?
+               OR lower(style) LIKE ?
+               OR lower(label) LIKE ?
+            ORDER BY artist_album
+            """,
+            (like, like, like, like),
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "artist_album": row[1],
+                "genre": row[2],
+                "style": row[3],
+                "label": row[4],
+                "format": row[5],
+                "condition": row[6],
+                "price_usd": row[7],
+                "quantity": row[8],
+            }
+            for row in rows
+        ]
+
+
+def get_all_inventory() -> list:
+    """Return all inventory records."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, artist_album, genre, style, label, format,
+                   condition, price_usd, quantity
+            FROM inventory
+            ORDER BY artist_album
+            """
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "artist_album": row[1],
+                "genre": row[2],
+                "style": row[3],
+                "label": row[4],
+                "format": row[5],
+                "condition": row[6],
+                "price_usd": row[7],
+                "quantity": row[8],
+            }
+            for row in rows
+        ]
+
+
+def reduce_inventory_quantity(item_id: int, amount: int) -> bool:
+    """Decrease quantity for an item. Returns True if successful."""
+    if amount <= 0:
+        return False
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT quantity FROM inventory WHERE id = ?",
+            (item_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        new_qty = row[0] - amount
+        if new_qty < 0:
+            return False
+        cursor.execute(
+            "UPDATE inventory SET quantity = ? WHERE id = ?",
+            (new_qty, item_id),
+        )
+        conn.commit()
+        return True
+
+
+def get_inventory_by_id(item_id: int):
+    """Fetch a single inventory record by id."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, artist_album, genre, style, label, format,
+                   condition, price_usd, quantity
+            FROM inventory
+            WHERE id = ?
+            """,
+            (item_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "artist_album": row[1],
+                "genre": row[2],
+                "style": row[3],
+                "label": row[4],
+                "format": row[5],
+                "condition": row[6],
+                "price_usd": row[7],
+                "quantity": row[8],
+            }
+        return None
+
