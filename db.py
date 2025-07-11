@@ -1,7 +1,10 @@
 import sqlite3
 import os
 
-DB_FILE = "clime_db.db"
+# Use absolute path to ensure the same database file is used
+# regardless of the current working directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "clime_db.db")
 
 def get_db():
     return sqlite3.connect(DB_FILE)
