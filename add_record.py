@@ -247,3 +247,26 @@ def start_add_flow():
         name="add_record",
         persistent=False
     )
+
+
+# === Automated Helpers ===
+def quick_add_from_discogs(query: str, price: float, condition: str = "nm", quantity: int = 1) -> str:
+    """Add a record to the DB using the first Discogs search result."""
+    results = list(d.search(query, type="release").page(1))
+    if not results:
+        raise ValueError(f"No Discogs results for {query}")
+
+    release = results[0]
+    row = [
+        str(release.title),
+        safe_join_list(release.genres),
+        safe_join_list(release.styles),
+        safe_get_labels(release),
+        safe_get_format(release),
+        str(condition),
+        float(price),
+        int(quantity),
+    ]
+
+    save_to_inventory(row)
+    return str(release.title)
