@@ -48,19 +48,6 @@ DISCOGS_TOKEN=your_discogs_token
 python bot.py
 ```
 
-### 4. Bulk Import from Excel
-Use a two-line-per-record Excel sheet to quickly populate the database.
-Each record title goes on the first row, and the next row holds the price in GEL.
-
-Run the importer directly:
-
-```bash
-python bulk_import.py my_records.xlsx
-```
-
-You can also send the file to the bot with `/bulkimport` and it will add
-each item using the standard Discogs lookup flow.
-
 
 🗃 Folder Structure
 ```bash
@@ -71,7 +58,6 @@ record-store-bot/
 ├── sales.py             # /sell with cart and payment
 ├── reports.py           # /report generation and sending
 ├── inventory.py         # Inventory loader
-├── bulk_import.py       # Import simple Excel lists into the database
 ├── clime_db.xlsx        # Your Excel-based inventory
 ├── sales/               # Auto-generated sales reports
 ├── requirements.txt

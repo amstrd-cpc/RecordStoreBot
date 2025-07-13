@@ -16,7 +16,6 @@ from auth import auth_manager, require_auth, create_auth_handlers, check_auth_mi
 from add_record import start_add_flow
 from sales import start_sell_flow
 from inventory import create_inventory_conversation
-from bulk_import import start_bulk_import_flow
 from db import init_db
 import inventory as inventory_utils
 import reports
@@ -208,7 +207,6 @@ def main():
     application.add_handler(start_add_flow())
     application.add_handler(start_sell_flow())
     application.add_handler(create_inventory_conversation())
-    application.add_handler(start_bulk_import_flow())
     
     # Add fallback handler for unauthorized access
     application.add_handler(MessageHandler(filters.ALL, unauthorized_handler))
