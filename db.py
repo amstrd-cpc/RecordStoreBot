@@ -29,7 +29,7 @@ def init_db():
             label TEXT,
             format TEXT,
             condition TEXT,
-            price_usd REAL,
+            price_gel REAL,
             quantity INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -46,7 +46,7 @@ def init_db():
             label TEXT,
             format TEXT,
             condition TEXT,
-            price_usd REAL,
+            price_gel REAL,
             payment_method TEXT DEFAULT 'cash',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -72,8 +72,8 @@ def init_db():
             # Migrate existing data from the old Sheet table into the new inventory table
             cursor.execute(
                 """
-                INSERT INTO inventory (artist_album, genre, style, label, format, condition, price_usd, quantity)
-                SELECT "Artist_-_Album", Genre, Style, Label, '' as format, Condition, USD_Price, 1
+                INSERT INTO inventory (artist_album, genre, style, label, format, condition, price_gel, quantity)
+                SELECT "Artist_-_Album", Genre, Style, Label, '' as format, Condition, gel_Price, 1
                 FROM Sheet
                 """
             )

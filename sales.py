@@ -43,7 +43,7 @@ async def sell_flow_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Create buttons with proper item information including quantity
     buttons = []
     for i, item in enumerate(found_items):
-        button_text = f"{item['artist_album']} - {item['condition']} (Qty: {item['quantity']}) - ${item['price_usd']:.2f}"
+        button_text = f"{item['artist_album']} - {item['condition']} (Qty: {item['quantity']}) - ₾{item['price_gel']:.2f}"
         # Truncate if too long for button
         if len(button_text) > 60:
             button_text = button_text[:57] + "..."
@@ -72,7 +72,7 @@ async def sell_flow_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Selected: <b>{selected_item['artist_album']}</b>\n"
         f"Condition: {selected_item['condition']}\n"
         f"Available: {selected_item['quantity']} copies\n"
-        f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
+        f"Listed price: ₾{selected_item['price_gel']:.2f}\n\n"
         f"Choose payment method:"
     )
     
@@ -95,7 +95,7 @@ async def sell_flow_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Use HTML parsing instead of Markdown
     message_text = (
         f"Payment method: <b>{payment_method.upper()}</b>\n\n"
-        f"Listed price: ${selected_item['price_usd']:.2f}\n\n"
+        f"Listed price: ₾{selected_item['price_gel']:.2f}\n\n"
         f"Enter the selling price or type 'ok' to use the listed price:"
     )
     
@@ -112,7 +112,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Handle price input
     if msg.lower() == "ok":
-        final_price = selected_item['price_usd']
+        final_price = selected_item['price_gel']
     else:
         try:
             final_price = float(msg)
@@ -140,7 +140,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("""
                 INSERT INTO sales (
                     date, artist_album, genre, style, label, format,
-                    condition, price_usd, payment_method
+                    condition, price_gel, payment_method
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 today,
@@ -164,7 +164,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'label': selected_item['label'],
             'format': selected_item['format'],
             'condition': selected_item['condition'],
-            'price_usd': final_price,
+            'price_gel': final_price,
             'payment_method': payment_method
         })
 
@@ -177,7 +177,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Sale recorded successfully!\n\n"
             f"📀 Album: <b>{selected_item['artist_album']}</b>\n"
             f"💿 Condition: {selected_item['condition']}\n"
-            f"💰 Price: ${final_price:.2f}\n"
+            f"💰 Price: ₾{final_price:.2f}\n"
             f"💳 Payment: {payment_method.upper()}\n"
             f"📦 Remaining quantity: {remaining_qty}"
         )
@@ -206,8 +206,8 @@ def start_sell_flow():
         entry_points=[CommandHandler("sell", sell_flow_start)],
         states={
             SELL_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_query)],
-            SELL_SELECT: [CallbackQueryHandler(sell_flow_select, pattern=r"^select_\d+$")],
-            SELL_PAYMENT: [CallbackQueryHandler(sell_flow_payment, pattern=r"^payment_(cash|pos)$")],
+            SELL_SELECT: [CallbackQueryHandler(sell_flow_select, pattern=r"^select_\d+₾")],
+            SELL_PAYMENT: [CallbackQueryHandler(sell_flow_payment, pattern=r"^payment_(cash|pos)₾")],
             SELL_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_price)]
         },
         fallbacks=[CommandHandler("cancel", cancel_sale)],

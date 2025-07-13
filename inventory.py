@@ -117,7 +117,7 @@ async def send_inventory_results(update: Update, results: list, title: str, quer
 
 def format_inventory_item(item: dict, index: int) -> str:
     # Use plain text formatting - no markdown at all
-    price = item.get('price_usd', 0)
+    price = item.get('price_gel', 0)
     quantity = item.get('quantity', 0)
     
     # Clean up any potential problematic characters in text fields
@@ -130,7 +130,7 @@ def format_inventory_item(item: dict, index: int) -> str:
         f"{index}. {clean_field(item.get('artist_album', 'Unknown'))}\n"
         f"📀 Format: {clean_field(item.get('format', 'N/A'))}\n"
         f"🏷️ Condition: {clean_field(item.get('condition', 'N/A'))}\n"
-        f"💰 Price: ${price:.2f}\n"
+        f"💰 Price: ₾{price:.2f}\n"
         f"📦 Quantity: {quantity}\n"
         f"🏢 Label: {clean_field(item.get('label', 'N/A'))}\n"
         f"🎵 Genre: {clean_field(item.get('genre', 'N/A'))}\n\n"
@@ -170,7 +170,7 @@ def search_inventory(query: str) -> list:
         cursor.execute(
             """
             SELECT id, artist_album, genre, style, label, format,
-                   condition, price_usd, quantity
+                   condition, price_gel, quantity
             FROM inventory
             WHERE lower(artist_album) LIKE ?
                OR lower(genre) LIKE ?
@@ -190,7 +190,7 @@ def search_inventory(query: str) -> list:
                 "label": row[4],
                 "format": row[5],
                 "condition": row[6],
-                "price_usd": row[7],
+                "price_gel": row[7],
                 "quantity": row[8],
             }
             for row in rows
@@ -204,7 +204,7 @@ def get_all_inventory() -> list:
         cursor.execute(
             """
             SELECT id, artist_album, genre, style, label, format,
-                   condition, price_usd, quantity
+                   condition, price_gel, quantity
             FROM inventory
             ORDER BY artist_album
             """
@@ -219,7 +219,7 @@ def get_all_inventory() -> list:
                 "label": row[4],
                 "format": row[5],
                 "condition": row[6],
-                "price_usd": row[7],
+                "price_gel": row[7],
                 "quantity": row[8],
             }
             for row in rows
@@ -257,7 +257,7 @@ def get_inventory_by_id(item_id: int):
         cursor.execute(
             """
             SELECT id, artist_album, genre, style, label, format,
-                   condition, price_usd, quantity
+                   condition, price_gel, quantity
             FROM inventory
             WHERE id = ?
             """,
@@ -273,7 +273,7 @@ def get_inventory_by_id(item_id: int):
                 "label": row[4],
                 "format": row[5],
                 "condition": row[6],
-                "price_usd": row[7],
+                "price_gel": row[7],
                 "quantity": row[8],
             }
         return None
