@@ -24,10 +24,13 @@ CONDITION_OPTIONS = ["m", "nm", "vg+", "vg", "g+", "g", "f", "p"]
 def save_to_inventory(row):
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO inventory (artist_album, genre, style, label, format, condition, price_usd, quantity)
+        cursor.execute(
+            """
+        INSERT INTO inventory (artist_album, genre, style, label, format, condition, price_gel, quantity)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, row)
+        """,
+            row,
+        )
         conn.commit()
 
 # === Discogs Utilities ===
