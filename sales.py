@@ -164,7 +164,7 @@ async def sell_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'label': selected_item['label'],
             'format': selected_item['format'],
             'condition': selected_item['condition'],
-            'price_gel': final_price,
+            'price_usd': final_price,
             'payment_method': payment_method
         })
 
@@ -206,8 +206,8 @@ def start_sell_flow():
         entry_points=[CommandHandler("sell", sell_flow_start)],
         states={
             SELL_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_query)],
-            SELL_SELECT: [CallbackQueryHandler(sell_flow_select, pattern=r"^select_\d+₾")],
-            SELL_PAYMENT: [CallbackQueryHandler(sell_flow_payment, pattern=r"^payment_(cash|pos)₾")],
+            SELL_SELECT: [CallbackQueryHandler(sell_flow_select, pattern=r"^select_\d+")],
+            SELL_PAYMENT: [CallbackQueryHandler(sell_flow_payment, pattern=r"^payment_(cash|pos)$")],
             SELL_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_flow_price)]
         },
         fallbacks=[CommandHandler("cancel", cancel_sale)],

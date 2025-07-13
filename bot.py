@@ -184,6 +184,7 @@ def main():
     """Main function to run the bot"""
     # Ensure required tables exist
     init_db()
+    reports.init_report_db()
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     

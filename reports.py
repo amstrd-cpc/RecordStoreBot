@@ -173,6 +173,81 @@ def report_handler():
     """Return the report command handler"""
     return CommandHandler("report", send_report)
 
+
+def get_recent_sales(limit: int = 10):
+    """Return the most recent sales from the report database."""
+    with get_report_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT artist_album, price_usd, payment_method, date
+            FROM sales
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = cursor.fetchall()
+
+    return [
+        {
+            "artist_album": row[0],
+            "price_usd": row[1],
+            "payment_method": row[2],
+            "date": row[3],
+        }
+        for row in rows
+    ]
+
+
+def _generate_summary(start_date: datetime.date, end_date: datetime.date) -> str:
+    """Helper to generate a textual sales summary for a date range."""
+    with get_report_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT price_usd, payment_method
+            FROM sales
+            WHERE date BETWEEN ? AND ?
+            """,
+            (start_date.isoformat(), end_date.isoformat()),
+        )
+        rows = cursor.fetchall()
+
+    if not rows:
+        return "No sales recorded for this period."
+
+    total_cash = sum(row[0] for row in rows if (row[1] or "cash").lower() == "cash")
+    total_pos = sum(row[0] for row in rows if (row[1] or "cash").lower() == "pos")
+    total_items = len(rows)
+
+    return (
+        f"Items sold: {total_items}\n"
+        f"Cash: ${total_cash:.2f}\n"
+        f"POS: ${total_pos:.2f}\n"
+        f"Total Revenue: ${total_cash + total_pos:.2f}"
+    )
+
+
+def generate_daily_report() -> str:
+    today = datetime.date.today()
+    summary = _generate_summary(today, today)
+    return f"📅 Daily Report for {today}\n\n" + summary
+
+
+def generate_weekly_report() -> str:
+    end = datetime.date.today()
+    start = end - datetime.timedelta(days=6)
+    summary = _generate_summary(start, end)
+    return f"📅 Weekly Report ({start} to {end})\n\n" + summary
+
+
+def generate_monthly_report() -> str:
+    end = datetime.date.today()
+    start = end - datetime.timedelta(days=29)
+    summary = _generate_summary(start, end)
+    return f"📅 Monthly Report ({start} to {end})\n\n" + summary
+
 def get_sales_stats(days: int = 7):
     """Get sales statistics for the last N days (for future use)"""
     end_date = datetime.date.today()
